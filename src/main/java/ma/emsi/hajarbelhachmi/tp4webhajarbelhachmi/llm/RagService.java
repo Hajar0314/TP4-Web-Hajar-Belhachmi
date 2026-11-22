@@ -1,12 +1,12 @@
 package ma.emsi.hajarbelhachmi.tp4webhajarbelhachmi.llm;
 
 import dev.langchain4j.data.document.Document;
-import dev.langchain4j.data.document.parser.apache.pdfbox.ApachePdfBoxDocumentParser;
+import dev.langchain4j.data.document.parser.apache.tika.ApacheTikaDocumentParser;
 import dev.langchain4j.data.document.splitter.DocumentSplitters;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.embedding.EmbeddingModel;
-import dev.langchain4j.model.googleai.GoogleAiGeminiChatModel;
+import dev.langchain4j.model.google.genai.GoogleGenAiChatModel;
 import dev.langchain4j.rag.DefaultRetrievalAugmentor;
 import dev.langchain4j.rag.RetrievalAugmentor;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
@@ -20,16 +20,30 @@ import jakarta.inject.Inject;
 import java.io.InputStream;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.logging.Logger;
 
+/**
+ * Phase 1 du RAG (ingestion des 2 PDF, une seule fois) et construction du RetrievalAugmentor
+ * (phase 2). Les PDF sont dans src/main/resources/rag.
+ */
 @ApplicationScoped
 public class RagService {
 
-    // ===== À ADAPTER à vos PDF =====
+    private static final Logger LOG = Logger.getLogger(RagService.class.getName());
+
+    // Paramètres du RAG (à ajuster en testant)
+    public static final int TAILLE_SEGMENT = 300;   // en caractères (comme dans les tests du TP)
+    public static final int CHEVAUCHEMENT = 30;
+    public static final int MAX_RESULTATS = 3;
+    public static final double SCORE_MIN = 0.5;
+
+    // Les 2 PDF du RAG, avec une description que le LM utilise pour choisir le bon document
     private static final String PDF_1 = "rag/document1.pdf";
-    private static final String DESC_1 = "Cours d'intelligence artificielle et de machine learning";
+    private static final String DESC_1 = "Cours sur l'IA et le machine learning : réseaux de neurones, "
+            + "apprentissage, descente de gradient, modèles de langage, tokens, embeddings, transformeurs";
     private static final String PDF_2 = "rag/document2.pdf";
-    private static final String DESC_2 = "Cours de programmation Java";
-    // ================================
+    private static final String DESC_2 = "Cours sur le fine-tuning et le RAG : bases de données vectorielles, "
+            + "LangChain4j, ingestion de documents, ContentRetriever, routage, reranking";
 
     @Inject
     private MagasinEmbeddings magasinEmbeddings;
@@ -44,9 +58,10 @@ public class RagService {
         sourcesFixes.put(creerRetriever(PDF_1, embeddingModel), DESC_1);
         sourcesFixes.put(creerRetriever(PDF_2, embeddingModel), DESC_2);
 
-        ChatModel modelRouteur = GoogleAiGeminiChatModel.builder()
+        // Modèle utilisé par le routeur ; température basse pour des décisions stables
+        ChatModel modelRouteur = GoogleGenAiChatModel.builder()
                 .apiKey(System.getenv("GEMINI_KEY"))
-                .modelName("gemini-2.5-flash")
+                .modelName("gemini-3.5-flash")
                 .temperature(0.0)
                 .build();
 
@@ -69,19 +84,22 @@ public class RagService {
             if (in == null) {
                 throw new IllegalStateException("PDF introuvable dans les resources : " + cheminPdf);
             }
-            Document document = new ApachePdfBoxDocumentParser().parse(in);
+            Document document = new ApacheTikaDocumentParser().parse(in);
+
             InMemoryEmbeddingStore<TextSegment> store = new InMemoryEmbeddingStore<>();
             EmbeddingStoreIngestor.builder()
-                    .documentSplitter(DocumentSplitters.recursive(300, 30))
+                    .documentSplitter(DocumentSplitters.recursive(TAILLE_SEGMENT, CHEVAUCHEMENT))
                     .embeddingModel(embeddingModel)
                     .embeddingStore(store)
                     .build()
                     .ingest(document);
+            LOG.info(">>> PDF ingéré : " + cheminPdf);
+
             return EmbeddingStoreContentRetriever.builder()
                     .embeddingStore(store)
                     .embeddingModel(embeddingModel)
-                    .maxResults(3)
-                    .minScore(0.5)
+                    .maxResults(MAX_RESULTATS)
+                    .minScore(SCORE_MIN)
                     .build();
         } catch (Exception e) {
             throw new RuntimeException("Erreur lors du chargement de " + cheminPdf, e);

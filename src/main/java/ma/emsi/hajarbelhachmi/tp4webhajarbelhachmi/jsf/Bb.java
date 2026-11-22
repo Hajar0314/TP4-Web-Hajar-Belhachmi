@@ -6,8 +6,11 @@ import jakarta.faces.model.SelectItem;
 import jakarta.faces.view.ViewScoped;
 import jakarta.inject.Inject;
 import jakarta.inject.Named;
-import ma.emsi.hajarbelhachmi.tp2webhajarbelhachmi.llm.LlmClient;
+import jakarta.servlet.http.Part;
+import ma.emsi.hajarbelhachmi.tp4webhajarbelhachmi.llm.LlmClient;
+import ma.emsi.hajarbelhachmi.tp4webhajarbelhachmi.llm.MagasinEmbeddings;
 
+import java.io.InputStream;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
@@ -62,6 +65,23 @@ public class Bb implements Serializable {
      */
     @Inject
     private FacesContext facesContext;
+
+    /**
+     * Magasin d'embeddings qui reçoit les PDF chargés par l'utilisateur (upload).
+     */
+    @Inject
+    private MagasinEmbeddings magasinEmbeddings;
+
+    /**
+     * Fichier PDF choisi par l'utilisateur dans la page (transient : Part n'est pas Serializable
+     * et le backing bean, de portée view, doit l'être).
+     */
+    private transient Part fichier;
+
+    /**
+     * Message affiché après le chargement d'un fichier.
+     */
+    private String messagePourChargementFichier;
 
     /**
      * Obligatoire pour un bean CDI (classe gérée par CDI), s'il y a un autre constructeur.
@@ -167,6 +187,41 @@ public class Bb implements Serializable {
      */
     private void afficherConversation() {
         this.conversation.append("== User:\n").append(question).append("\n== LLM:\n").append(reponse).append("\n");
+    }
+
+    public Part getFichier() {
+        return fichier;
+    }
+
+    public void setFichier(Part fichier) {
+        this.fichier = fichier;
+    }
+
+    public String getMessagePourChargementFichier() {
+        return messagePourChargementFichier;
+    }
+
+    /**
+     * Téléchargement d'un fichier PDF, ajouté dans la base de données vectorielle.
+     */
+    public void upload() {
+        if (this.fichier == null || this.fichier.getSize() == 0) {
+            this.messagePourChargementFichier = "Aucun fichier choisi.";
+            return;
+        }
+        // getSubmittedFileName() retourne le nom du fichier sur le disque du client.
+        String nom = this.fichier.getSubmittedFileName();
+        if (nom != null && nom.toLowerCase().endsWith(".pdf")) {
+            try (InputStream in = this.fichier.getInputStream()) {
+                // Charger le fichier dans la BD vectorielle
+                this.magasinEmbeddings.ajouterPdf(in, nom);
+                this.messagePourChargementFichier = "Fichier " + nom + " chargé, il sera utilisé pour le RAG.";
+            } catch (Exception e) {
+                this.messagePourChargementFichier = "Erreur lors du chargement de " + nom + " : " + e.getMessage();
+            }
+        } else {
+            this.messagePourChargementFichier = "Le fichier doit être un PDF.";
+        }
     }
 
     public List<SelectItem> getRolesSysteme() {
