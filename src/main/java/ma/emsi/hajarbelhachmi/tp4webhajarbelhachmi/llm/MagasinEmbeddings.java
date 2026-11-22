@@ -1,7 +1,7 @@
 package ma.emsi.hajarbelhachmi.tp4webhajarbelhachmi.llm;
 
 import dev.langchain4j.data.document.Document;
-import dev.langchain4j.data.document.parser.apache.pdfbox.ApachePdfBoxDocumentParser;
+import dev.langchain4j.data.document.parser.apache.tika.ApacheTikaDocumentParser;
 import dev.langchain4j.data.document.splitter.DocumentSplitters;
 import dev.langchain4j.data.segment.TextSegment;
 import dev.langchain4j.model.embedding.EmbeddingModel;
@@ -19,7 +19,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Magasin d'embeddings (en mémoire) pour les PDF chargés (uploadés) par les utilisateurs.
- * Partagé par toute l'application. Les fichiers chargés disparaissent au redémarrage.
+ * Partagé par toute l'application. Le contenu disparaît au redémarrage du serveur.
+ * Il possède aussi le modèle d'embeddings, partagé avec RagService.
  */
 @ApplicationScoped
 public class MagasinEmbeddings {
@@ -36,8 +37,8 @@ public class MagasinEmbeddings {
         this.retrieverUploads = EmbeddingStoreContentRetriever.builder()
                 .embeddingStore(store)
                 .embeddingModel(embeddingModel)
-                .maxResults(3)
-                .minScore(0.5)
+                .maxResults(RagService.MAX_RESULTATS)
+                .minScore(RagService.SCORE_MIN)
                 .build();
     }
 
@@ -50,9 +51,9 @@ public class MagasinEmbeddings {
      * ajout dans le magasin.
      */
     public void ajouterPdf(InputStream pdf, String nomFichier) {
-        Document document = new ApachePdfBoxDocumentParser().parse(pdf);
+        Document document = new ApacheTikaDocumentParser().parse(pdf);
         EmbeddingStoreIngestor.builder()
-                .documentSplitter(DocumentSplitters.recursive(300, 30))
+                .documentSplitter(DocumentSplitters.recursive(RagService.TAILLE_SEGMENT, RagService.CHEVAUCHEMENT))
                 .embeddingModel(embeddingModel)
                 .embeddingStore(store)
                 .build()

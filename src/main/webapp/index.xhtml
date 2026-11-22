@@ -67,6 +67,20 @@
 
             </h:panelGrid>
         </h:form>
+
+        <!-- Upload d'un PDF qui sera utilisé par le RAG. Le formulaire doit être multipart/form-data. -->
+        <h:form id="pdfform" enctype="multipart/form-data">
+            <h:panelGrid columns="3">
+                <h:outputLabel for="file" value="Choisissez un fichier PDF local :"/>
+                <h:inputFile id="file" value="#{bb.fichier}"/>
+                <h:message for="file"/>
+            </h:panelGrid>
+
+            <h:commandButton value="Upload du fichier local" action="#{bb.upload}"/>
+            <h:outputText value="  "/>
+            <h:outputText value="#{bb.messagePourChargementFichier}"
+                          rendered="#{not empty bb.messagePourChargementFichier}"/>
+        </h:form>
     </f:view>
 </h:body>
 </html>

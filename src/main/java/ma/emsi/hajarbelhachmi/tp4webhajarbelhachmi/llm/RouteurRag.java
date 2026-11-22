@@ -1,6 +1,7 @@
 package ma.emsi.hajarbelhachmi.tp4webhajarbelhachmi.llm;
 
 import dev.langchain4j.model.chat.ChatModel;
+import dev.langchain4j.model.input.PromptTemplate;
 import dev.langchain4j.rag.content.retriever.ContentRetriever;
 import dev.langchain4j.rag.query.Query;
 import dev.langchain4j.rag.query.router.LanguageModelQueryRouter;
@@ -13,13 +14,23 @@ import java.util.function.Supplier;
 import java.util.logging.Logger;
 
 /**
- * 1) Le LM décide si la question concerne les documents (sinon : pas de RAG).
- * 2) Si oui, un LanguageModelQueryRouter choisit le ou les documents à interroger.
- * Les sources sont relues à chaque question, pour prendre en compte les PDF uploadés.
+ * QueryRouter personnalisé qui combine deux fonctionnalités des tests du TP 4 :
+ * - Test 4 "Pas de RAG" : le LM décide si la question concerne les documents ;
+ *   sinon aucun ContentRetriever n'est utilisé (liste vide), donc pas de RAG.
+ * - Test 3 "Routage" : si la question concerne les documents, un LanguageModelQueryRouter
+ *   choisit le ou les documents (ContentRetriever) à interroger.
+ *
+ * Les sources sont fournies par un Supplier, relu à chaque question : les PDF chargés
+ * (upload) après le démarrage de l'application sont ainsi pris en compte.
  */
 public class RouteurRag implements QueryRouter {
 
     private static final Logger LOG = Logger.getLogger(RouteurRag.class.getName());
+
+    private final PromptTemplate promptTemplate = PromptTemplate.from(
+            "Voici les sujets traités par mes documents : {{sujets}}. "
+                    + "Est-ce que la requête '{{requete}}' porte sur un de ces sujets ? "
+                    + "Réponds seulement par 'oui', 'non', ou 'peut-être'.");
 
     private final ChatModel model;
     private final Supplier<Map<ContentRetriever, String>> sources;
@@ -34,18 +45,20 @@ public class RouteurRag implements QueryRouter {
         Map<ContentRetriever, String> sourcesActuelles = sources.get();
         String sujets = String.join(" ; ", sourcesActuelles.values());
 
-        String prompt = "Voici les sujets traités par mes documents : " + sujets + "\n"
-                + "Question de l'utilisateur : " + query.text() + "\n"
-                + "Cette question concerne-t-elle ces sujets ? Réponds uniquement par OUI ou NON.";
-        String reponse = model.chat(prompt).trim().toUpperCase();
-        LOG.info(">>> Décision RAG pour \"" + query.text() + "\" : " + reponse);
+        String question = promptTemplate.apply(Map.of("sujets", sujets, "requete", query.text())).text();
+        String reponse = model.chat(question).trim().toLowerCase();
+        LOG.info(">>> RAG ? question = \"" + query.text() + "\" ; réponse du LM = " + reponse);
 
-        if (reponse.startsWith("NON")) {
-            return Collections.emptyList();   // pas de RAG
+        if (reponse.contains("non")) {
+            // Pas de RAG (aucun ContentRetriever utilisé)
+            LOG.info(">>> Pas de RAG pour cette question");
+            return Collections.emptyList();
         }
+
+        // Routage : le LM choisit le ou les documents à interroger
         Collection<ContentRetriever> choisis =
                 new LanguageModelQueryRouter(model, sourcesActuelles).route(query);
-        LOG.info(">>> Nombre de sources choisies : " + choisis.size());
+        LOG.info(">>> RAG avec " + choisis.size() + " source(s) de documents");
         return choisis;
     }
 }
